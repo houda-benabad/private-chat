@@ -11,7 +11,12 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 const COUNTRIES = [
   { name: 'Morocco', code: 'MA', dial: '+212', flag: '🇲🇦' },
@@ -57,32 +62,70 @@ const COUNTRIES = [
   { name: 'Singapore', code: 'SG', dial: '+65', flag: '🇸🇬' },
 ];
 
+function normalizePhone(dial, local) {
+  const digits = (dial + local).replace(/\D/g, '');
+  return `+${digits}`;
+}
+
 export default function PhoneScreen({ navigation }) {
   const [selected, setSelected] = useState(COUNTRIES[0]);
   const [phone, setPhone] = useState('');
   const [modalVisible, setModalVisible] = useState(false);
   const [search, setSearch] = useState('');
+  const [loading, setLoading] = useState(false);
 
   const filtered = COUNTRIES.filter(c =>
     c.name.toLowerCase().includes(search.toLowerCase()) ||
     c.dial.includes(search)
   );
 
-  const handleContinue = () => {
-    if (phone.length >= 6) {
-      navigation.navigate('OTP', {
-        phoneNumber: `${selected.dial} ${phone}`,
-      });
+  const handleContinue = async () => {
+    if (phone.length < 6) return;
+    setLoading(true);
+    try {
+      const normalized = normalizePhone(selected.dial, phone);
+      const displayPhone = `${selected.dial} ${phone}`;
+
+      // Save phone to Firestore users collection
+      await setDoc(
+        doc(db, 'users', normalized),
+        {
+          phone: normalized,
+          displayPhone,
+          country: selected.name,
+          countryCode: selected.code,
+          registeredAt: serverTimestamp(),
+        },
+        { merge: true }
+      );
+
+      // Keep phone in AsyncStorage for later steps
+      await AsyncStorage.setItem('pending_phone', normalized);
+
+      navigation.navigate('OTP', { phoneNumber: displayPhone });
+    } catch (err) {
+      console.warn('PhoneScreen save error:', err);
+      Alert.alert('Error', 'Could not save your number. Please try again.');
+    } finally {
+      setLoading(false);
     }
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0F0E17" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FDF5EE" />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
+        {/* Brand */}
+        <View style={styles.brand}>
+          <View style={styles.logoCircle}>
+            <Text style={styles.logoLetter}>Z</Text>
+          </View>
+          <Text style={styles.logoName}>Z.systems</Text>
+        </View>
+
         {/* Header */}
         <View style={styles.header}>
           <Text style={styles.title}>Enter your phone</Text>
@@ -106,7 +149,7 @@ export default function PhoneScreen({ navigation }) {
           <TextInput
             style={styles.phoneInput}
             placeholder="Phone number"
-            placeholderTextColor="#555570"
+            placeholderTextColor="#c4b8ae"
             keyboardType="phone-pad"
             value={phone}
             onChangeText={setPhone}
@@ -120,12 +163,15 @@ export default function PhoneScreen({ navigation }) {
 
         {/* Continue Button */}
         <TouchableOpacity
-          style={[styles.button, phone.length < 6 && styles.buttonDisabled]}
+          style={[styles.button, (phone.length < 6 || loading) && styles.buttonDisabled]}
           onPress={handleContinue}
-          disabled={phone.length < 6}
+          disabled={phone.length < 6 || loading}
           activeOpacity={0.85}
         >
-          <Text style={styles.buttonText}>Continue →</Text>
+          {loading
+            ? <ActivityIndicator color="#fff" size="small" />
+            : <Text style={styles.buttonText}>Continue →</Text>
+          }
         </TouchableOpacity>
       </KeyboardAvoidingView>
 
@@ -147,7 +193,7 @@ export default function PhoneScreen({ navigation }) {
           <TextInput
             style={styles.searchInput}
             placeholder="Search country or code..."
-            placeholderTextColor="#555570"
+            placeholderTextColor="#c4b8ae"
             value={search}
             onChangeText={setSearch}
           />
@@ -187,26 +233,55 @@ export default function PhoneScreen({ navigation }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#0F0E17',
+    backgroundColor: '#FDF5EE',
   },
   container: {
     flex: 1,
     paddingHorizontal: 24,
-    paddingTop: 48,
+    paddingTop: 32,
   },
-  header: {
+  brand: {
+    alignItems: 'center',
     marginBottom: 40,
   },
-  title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#FFFFFE',
+  logoCircle: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E46C53',
+    alignItems: 'center',
+    justifyContent: 'center',
     marginBottom: 10,
+    shadowColor: '#E46C53',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
+  },
+  logoLetter: {
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#fff',
+  },
+  logoName: {
+    fontSize: 14,
+    fontWeight: '700',
+    color: '#333',
+    letterSpacing: 0.5,
+  },
+  header: {
+    marginBottom: 28,
+  },
+  title: {
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#A7A9BE',
-    lineHeight: 22,
+    fontSize: 12,
+    color: '#999',
+    lineHeight: 20,
   },
   inputRow: {
     flexDirection: 'row',
@@ -217,70 +292,70 @@ const styles = StyleSheet.create({
   countryPicker: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#1A1A2E',
-    borderRadius: 14,
+    backgroundColor: '#fff',
+    borderRadius: 12,
     paddingHorizontal: 14,
-    paddingVertical: 16,
+    paddingVertical: 15,
     gap: 6,
-    borderWidth: 1,
-    borderColor: '#2A2A3E',
+    borderWidth: 1.5,
+    borderColor: '#f0e8e0',
   },
   flag: {
-    fontSize: 20,
+    fontSize: 18,
   },
   dialCode: {
-    color: '#FFFFFE',
-    fontSize: 15,
+    color: '#555',
+    fontSize: 13,
     fontWeight: '600',
   },
   chevron: {
-    color: '#6C63FF',
+    color: '#E46C53',
     fontSize: 12,
   },
   phoneInput: {
     flex: 1,
-    backgroundColor: '#1A1A2E',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 16,
-    color: '#FFFFFE',
-    fontSize: 17,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 15,
+    color: '#333',
+    fontSize: 15,
     fontWeight: '500',
-    borderWidth: 1,
-    borderColor: '#2A2A3E',
+    borderWidth: 1.5,
+    borderColor: '#f0e8e0',
   },
   hint: {
-    fontSize: 12,
-    color: '#555570',
+    fontSize: 10,
+    color: '#c4b8ae',
     marginBottom: 40,
-    lineHeight: 18,
+    lineHeight: 16,
   },
   button: {
-    backgroundColor: '#6C63FF',
-    borderRadius: 16,
-    paddingVertical: 17,
+    backgroundColor: '#E46C53',
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    shadowColor: '#E46C53',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   buttonDisabled: {
-    backgroundColor: '#2A2A3E',
+    backgroundColor: '#f0e8e0',
     shadowOpacity: 0,
     elevation: 0,
   },
   buttonText: {
-    color: '#FFFFFE',
-    fontSize: 17,
-    fontWeight: '700',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
     letterSpacing: 0.3,
   },
   // Modal
   modalSafe: {
     flex: 1,
-    backgroundColor: '#0F0E17',
+    backgroundColor: '#FDF5EE',
   },
   modalHeader: {
     flexDirection: 'row',
@@ -289,61 +364,61 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
     paddingVertical: 16,
     borderBottomWidth: 1,
-    borderBottomColor: '#1A1A2E',
+    borderBottomColor: '#f0e8e0',
   },
   modalTitle: {
-    fontSize: 20,
+    fontSize: 16,
     fontWeight: '700',
-    color: '#FFFFFE',
+    color: '#333',
   },
   modalClose: {
-    fontSize: 18,
-    color: '#A7A9BE',
+    fontSize: 16,
+    color: '#999',
     padding: 4,
   },
   searchInput: {
     margin: 16,
-    backgroundColor: '#1A1A2E',
-    borderRadius: 12,
-    paddingHorizontal: 16,
-    paddingVertical: 12,
-    color: '#FFFFFE',
-    fontSize: 15,
-    borderWidth: 1,
-    borderColor: '#2A2A3E',
+    backgroundColor: '#fff',
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    color: '#333',
+    fontSize: 13,
+    borderWidth: 1.5,
+    borderColor: '#f0e8e0',
   },
   countryRow: {
     flexDirection: 'row',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 14,
+    paddingVertical: 13,
     gap: 12,
   },
   countryRowActive: {
-    backgroundColor: '#1A1A2E',
+    backgroundColor: 'rgba(228,108,83,0.06)',
   },
   countryFlag: {
-    fontSize: 22,
+    fontSize: 20,
   },
   countryName: {
     flex: 1,
-    color: '#FFFFFE',
-    fontSize: 15,
+    color: '#333',
+    fontSize: 13,
   },
   countryDial: {
-    color: '#A7A9BE',
-    fontSize: 14,
+    color: '#999',
+    fontSize: 12,
     fontWeight: '500',
   },
   checkmark: {
-    color: '#6C63FF',
-    fontSize: 16,
+    color: '#E46C53',
+    fontSize: 15,
     fontWeight: '700',
     marginLeft: 6,
   },
   separator: {
     height: 1,
-    backgroundColor: '#1A1A2E',
+    backgroundColor: '#f5efe8',
     marginHorizontal: 20,
   },
 });

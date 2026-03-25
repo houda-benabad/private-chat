@@ -32,13 +32,11 @@ export default function OTPScreen({ navigation, route }) {
   }, [countdown]);
 
   const handleChange = (text, index) => {
-    // Accept only digits
     const digit = text.replace(/[^0-9]/g, '').slice(-1);
     const newOtp = [...otp];
     newOtp[index] = digit;
     setOtp(newOtp);
 
-    // Auto-advance
     if (digit && index < OTP_LENGTH - 1) {
       inputs.current[index + 1]?.focus();
     }
@@ -70,7 +68,7 @@ export default function OTPScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0F0E17" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FDF5EE" />
       <KeyboardAvoidingView
         style={styles.container}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -145,7 +143,7 @@ export default function OTPScreen({ navigation, route }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#0F0E17',
+    backgroundColor: '#FDF5EE',
   },
   container: {
     flex: 1,
@@ -153,101 +151,96 @@ const styles = StyleSheet.create({
     paddingTop: 16,
   },
   back: {
-    marginBottom: 36,
+    marginBottom: 32,
   },
   backText: {
-    color: '#6C63FF',
-    fontSize: 15,
+    color: '#E46C53',
+    fontSize: 13,
     fontWeight: '600',
   },
   header: {
-    marginBottom: 44,
+    marginBottom: 36,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#FFFFFE',
-    marginBottom: 10,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#A7A9BE',
+    fontSize: 12,
+    color: '#999',
   },
   phone: {
-    fontSize: 16,
-    color: '#6C63FF',
-    fontWeight: '700',
+    fontSize: 13,
+    color: '#E46C53',
+    fontWeight: '600',
     marginTop: 4,
   },
   otpRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    marginBottom: 32,
+    marginBottom: 28,
     gap: 8,
   },
   otpBox: {
     flex: 1,
     aspectRatio: 0.85,
-    backgroundColor: '#1A1A2E',
-    borderRadius: 14,
+    backgroundColor: '#fff',
+    borderRadius: 10,
     textAlign: 'center',
-    fontSize: 24,
+    fontSize: 20,
     fontWeight: '700',
-    color: '#FFFFFE',
+    color: '#333',
     borderWidth: 1.5,
-    borderColor: '#2A2A3E',
+    borderColor: '#f0e8e0',
   },
   otpBoxFilled: {
-    borderColor: '#6C63FF',
-    backgroundColor: '#1E1A3A',
+    borderColor: '#E46C53',
+    backgroundColor: 'rgba(228,108,83,0.04)',
   },
   otpBoxActive: {
-    borderColor: '#6C63FF',
-    shadowColor: '#6C63FF',
+    borderColor: '#E46C53',
+    shadowColor: '#E46C53',
     shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.4,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOpacity: 0.15,
+    shadowRadius: 6,
+    elevation: 3,
   },
   resendRow: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 44,
+    marginBottom: 36,
   },
   resendLabel: {
-    color: '#A7A9BE',
-    fontSize: 14,
+    color: '#999',
+    fontSize: 11,
   },
   resendActive: {
-    color: '#6C63FF',
-    fontSize: 14,
-    fontWeight: '700',
+    color: '#E46C53',
+    fontSize: 11,
+    fontWeight: '600',
   },
   resendTimer: {
-    color: '#555570',
-    fontSize: 14,
-    fontWeight: '500',
+    color: '#E46C53',
+    fontSize: 11,
+    fontWeight: '600',
   },
   button: {
-    backgroundColor: '#6C63FF',
-    borderRadius: 16,
-    paddingVertical: 17,
+    backgroundColor: 'transparent',
+    borderRadius: 14,
+    paddingVertical: 13,
     alignItems: 'center',
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    borderWidth: 1.5,
+    borderColor: '#E46C53',
   },
   buttonDisabled: {
-    backgroundColor: '#2A2A3E',
-    shadowOpacity: 0,
-    elevation: 0,
+    borderColor: '#f0e8e0',
   },
   buttonText: {
-    color: '#FFFFFE',
-    fontSize: 17,
-    fontWeight: '700',
+    color: '#E46C53',
+    fontSize: 14,
+    fontWeight: '600',
     letterSpacing: 0.3,
   },
 });

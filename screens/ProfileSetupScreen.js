@@ -14,6 +14,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
+import { db } from '../firebase';
+import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function ProfileSetupScreen({ navigation }) {
   const [name, setName] = useState('');
@@ -48,12 +50,31 @@ export default function ProfileSetupScreen({ navigation }) {
     };
 
     await AsyncStorage.setItem('user_session', JSON.stringify(userProfile));
-    navigation.replace('Main');
+
+    // Update the Firestore user doc with profile info
+    try {
+      const phone = await AsyncStorage.getItem('pending_phone');
+      if (phone) {
+        await setDoc(
+          doc(db, 'users', phone),
+          {
+            name: name.trim(),
+            photoUri: photoUri || null,
+            profileCompletedAt: serverTimestamp(),
+          },
+          { merge: true }
+        );
+      }
+    } catch (err) {
+      console.warn('ProfileSetup Firestore save error:', err);
+    }
+
+    navigation.replace('Chats');
   };
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#0F0E17" />
+      <StatusBar barStyle="dark-content" backgroundColor="#FDF5EE" />
       <KeyboardAvoidingView
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
@@ -67,7 +88,7 @@ export default function ProfileSetupScreen({ navigation }) {
           <View style={styles.header}>
             <Text style={styles.title}>Set up your profile</Text>
             <Text style={styles.subtitle}>
-              Choose how you appear to others in PrivateChat.
+              Choose how you appear to others in Z Chat.
             </Text>
           </View>
 
@@ -96,11 +117,11 @@ export default function ProfileSetupScreen({ navigation }) {
 
           {/* Name Input */}
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Display Name</Text>
+            <Text style={styles.sectionLabel}>Display name</Text>
             <TextInput
               style={styles.nameInput}
               placeholder="Enter your name..."
-              placeholderTextColor="#555570"
+              placeholderTextColor="#c4b8ae"
               value={name}
               onChangeText={setName}
               maxLength={30}
@@ -119,7 +140,7 @@ export default function ProfileSetupScreen({ navigation }) {
             disabled={name.trim().length === 0}
             activeOpacity={0.85}
           >
-            <Text style={styles.buttonText}>Let's go →</Text>
+            <Text style={styles.buttonText}>Get Started →</Text>
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
@@ -130,7 +151,7 @@ export default function ProfileSetupScreen({ navigation }) {
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#0F0E17',
+    backgroundColor: '#FDF5EE',
   },
   flex: {
     flex: 1,
@@ -141,121 +162,116 @@ const styles = StyleSheet.create({
     paddingBottom: 40,
   },
   header: {
-    marginBottom: 36,
+    marginBottom: 32,
   },
   title: {
-    fontSize: 30,
-    fontWeight: '800',
-    color: '#FFFFFE',
-    marginBottom: 10,
+    fontSize: 22,
+    fontWeight: '700',
+    color: '#333',
+    marginBottom: 8,
   },
   subtitle: {
-    fontSize: 15,
-    color: '#A7A9BE',
-    lineHeight: 22,
+    fontSize: 12,
+    color: '#999',
+    lineHeight: 20,
   },
   avatarSection: {
     alignItems: 'center',
-    marginBottom: 36,
+    marginBottom: 32,
   },
   avatarWrapper: {
     position: 'relative',
     marginBottom: 10,
   },
   avatarImage: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    borderWidth: 3,
-    borderColor: '#6C63FF',
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    borderWidth: 2,
+    borderColor: '#E46C53',
   },
   avatarPlaceholder: {
-    width: 110,
-    height: 110,
-    borderRadius: 55,
-    backgroundColor: '#1A1A2E',
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: 'rgba(77,126,130,0.1)',
     borderWidth: 2,
-    borderColor: '#2A2A3E',
+    borderColor: 'rgba(77,126,130,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.4,
-    shadowRadius: 16,
-    elevation: 10,
   },
   avatarPlaceholderIcon: {
-    fontSize: 52,
+    fontSize: 40,
   },
   cameraBadge: {
     position: 'absolute',
     bottom: 0,
     right: 0,
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: '#6C63FF',
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    backgroundColor: '#E46C53',
     alignItems: 'center',
     justifyContent: 'center',
     borderWidth: 2,
-    borderColor: '#0F0E17',
+    borderColor: '#FDF5EE',
   },
   cameraIcon: {
-    fontSize: 16,
+    fontSize: 13,
   },
   avatarHint: {
-    color: '#555570',
-    fontSize: 13,
+    color: '#c4b8ae',
+    fontSize: 10,
   },
   section: {
     marginBottom: 28,
   },
   sectionLabel: {
-    color: '#A7A9BE',
-    fontSize: 13,
+    color: '#999',
+    fontSize: 10,
     fontWeight: '600',
     textTransform: 'uppercase',
     letterSpacing: 1,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   nameInput: {
-    backgroundColor: '#1A1A2E',
-    borderRadius: 14,
-    paddingHorizontal: 16,
-    paddingVertical: 15,
-    color: '#FFFFFE',
-    fontSize: 17,
+    backgroundColor: '#fff',
+    borderRadius: 12,
+    paddingHorizontal: 14,
+    paddingVertical: 13,
+    color: '#333',
+    fontSize: 15,
     fontWeight: '500',
-    borderWidth: 1,
-    borderColor: '#2A2A3E',
+    borderWidth: 1.5,
+    borderColor: '#f0e8e0',
   },
   charCount: {
-    color: '#555570',
-    fontSize: 12,
+    color: '#c4b8ae',
+    fontSize: 10,
     textAlign: 'right',
-    marginTop: 6,
+    marginTop: 4,
   },
   button: {
-    backgroundColor: '#6C63FF',
-    borderRadius: 16,
-    paddingVertical: 17,
+    backgroundColor: '#E46C53',
+    borderRadius: 14,
+    paddingVertical: 14,
     alignItems: 'center',
-    marginTop: 12,
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.4,
-    shadowRadius: 12,
-    elevation: 8,
+    marginTop: 8,
+    shadowColor: '#E46C53',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 10,
+    elevation: 6,
   },
   buttonDisabled: {
-    backgroundColor: '#2A2A3E',
+    backgroundColor: '#f0e8e0',
     shadowOpacity: 0,
     elevation: 0,
   },
   buttonText: {
-    color: '#FFFFFE',
-    fontSize: 17,
-    fontWeight: '700',
+    color: '#fff',
+    fontSize: 14,
+    fontWeight: '600',
     letterSpacing: 0.3,
   },
 });

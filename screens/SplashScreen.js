@@ -10,10 +10,9 @@ export default function SplashScreen({ navigation }) {
   const checkSession = async () => {
     try {
       const user = await AsyncStorage.getItem('user_session');
-      // Small delay so the splash is visible
       await new Promise(resolve => setTimeout(resolve, 1200));
       if (user) {
-        navigation.replace('Main');
+        navigation.replace('Chats');
       } else {
         navigation.replace('Phone');
       }
@@ -26,14 +25,14 @@ export default function SplashScreen({ navigation }) {
     <View style={styles.container}>
       <View style={styles.logoContainer}>
         <View style={styles.logoCircle}>
-          <Text style={styles.logoIcon}>💬</Text>
+          <Text style={styles.logoLetter}>Z</Text>
         </View>
-        <Text style={styles.appName}>PrivateChat</Text>
-        <Text style={styles.tagline}>Secure. Private. Yours.</Text>
+        <Text style={styles.appName}>Z Chat</Text>
+        <Text style={styles.tagline}>REDEFINING THE GAME</Text>
       </View>
       <ActivityIndicator
         size="small"
-        color="#6C63FF"
+        color="rgba(255,255,255,0.65)"
         style={styles.loader}
       />
     </View>
@@ -43,7 +42,7 @@ export default function SplashScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F0E17',
+    backgroundColor: '#E46C53',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -54,30 +53,30 @@ const styles = StyleSheet.create({
     width: 96,
     height: 96,
     borderRadius: 48,
-    backgroundColor: '#6C63FF',
+    backgroundColor: 'rgba(255,255,255,0.2)',
     alignItems: 'center',
     justifyContent: 'center',
     marginBottom: 20,
-    shadowColor: '#6C63FF',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.45,
-    shadowRadius: 16,
-    elevation: 12,
+    borderWidth: 2,
+    borderColor: 'rgba(255,255,255,0.35)',
   },
-  logoIcon: {
-    fontSize: 44,
+  logoLetter: {
+    fontSize: 48,
+    fontWeight: '800',
+    color: '#fff',
   },
   appName: {
     fontSize: 32,
     fontWeight: '800',
-    color: '#FFFFFE',
+    color: '#fff',
     letterSpacing: 0.5,
   },
   tagline: {
-    fontSize: 14,
-    color: '#A7A9BE',
-    marginTop: 8,
-    letterSpacing: 1,
+    fontSize: 11,
+    color: 'rgba(255,255,255,0.65)',
+    marginTop: 10,
+    letterSpacing: 3,
+    textTransform: 'uppercase',
   },
   loader: {
     position: 'absolute',
