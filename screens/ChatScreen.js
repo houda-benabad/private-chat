@@ -60,24 +60,32 @@ export default function ChatScreen({ navigation, route }) {
     (async () => {
       const raw = await AsyncStorage.getItem('user_session');
       const session = raw ? JSON.parse(raw) : {};
+      console.log('[ChatScreen] loaded myUid:', session.uid, '| chatId:', chatId);
       setMyUid(session.uid);
     })();
   }, []);
 
   useEffect(() => {
-    if (!chatId) return;
+    if (!chatId) {
+      console.warn('[ChatScreen] chatId is missing — listenToMessages not started');
+      return;
+    }
     const unsub = listenToMessages(chatId, setMessages);
     return () => unsub();
   }, [chatId]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !myUid) return;
+    if (!trimmed || !myUid) {
+      console.warn('[ChatScreen] handleSend blocked — trimmed:', JSON.stringify(trimmed), '| myUid:', myUid);
+      return;
+    }
     setText('');
     try {
       await sendMessage(chatId, myUid, trimmed);
     } catch (err) {
-      console.warn('ChatScreen send error:', err);
+      console.warn('ChatScreen send error:', err.code, err.message);
+      setText(trimmed); // restore text so the user doesn't lose their message
     }
   };
 

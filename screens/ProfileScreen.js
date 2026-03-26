@@ -17,6 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import { CommonActions } from '@react-navigation/native';
 import { db } from '../firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
+import { deleteAccount } from '../chatService';
 
 const AVATAR_COLORS = ['#4D7E82', '#E46C53', '#F1A167', '#ED2F3C', '#F3D292', '#4C7B3B'];
 
@@ -28,6 +29,7 @@ export default function ProfileScreen({ navigation }) {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [dirty, setDirty] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   useEffect(() => {
     loadProfile();
@@ -96,6 +98,38 @@ export default function ProfileScreen({ navigation }) {
     } finally {
       setSaving(false);
     }
+  };
+
+  const handleDeleteAccount = () => {
+    Alert.alert(
+      'Delete Account',
+      'This will permanently delete your account and all your data. This cannot be undone.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setDeleting(true);
+            try {
+              const raw = await AsyncStorage.getItem('user_session');
+              const session = raw ? JSON.parse(raw) : {};
+              const uid = session.uid;
+              if (uid) {
+                await deleteAccount(uid);
+              }
+              await AsyncStorage.clear();
+              navigation.replace('Phone');
+            } catch (err) {
+              console.warn('Delete account error:', err);
+              Alert.alert('Error', 'Something went wrong while deleting your account. Please try again.');
+            } finally {
+              setDeleting(false);
+            }
+          },
+        },
+      ]
+    );
   };
 
   const handleSignOut = () => {
@@ -245,6 +279,19 @@ export default function ProfileScreen({ navigation }) {
           activeOpacity={0.7}
         >
           <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
+
+        {/* Delete Account */}
+        <TouchableOpacity
+          style={[styles.deleteBtn, deleting && styles.deleteBtnDisabled]}
+          onPress={handleDeleteAccount}
+          disabled={deleting}
+          activeOpacity={0.7}
+        >
+          {deleting
+            ? <ActivityIndicator color="#ED2F3C" size="small" />
+            : <Text style={styles.deleteText}>Delete Account</Text>
+          }
         </TouchableOpacity>
 
         <Text style={styles.versionText}>Z.systems v1.0.0</Text>
@@ -442,6 +489,22 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(237,47,60,0.04)',
   },
   signOutText: { color: '#ED2F3C', fontSize: 14, fontWeight: '600' },
+
+  deleteBtn: {
+    marginHorizontal: 20,
+    marginTop: 10,
+    borderRadius: 14,
+    paddingVertical: 14,
+    alignItems: 'center',
+  },
+  deleteBtnDisabled: {
+    opacity: 0.5,
+  },
+  deleteText: {
+    color: '#c4b8ae',
+    fontSize: 13,
+    fontWeight: '500',
+  },
 
   versionText: {
     textAlign: 'center',

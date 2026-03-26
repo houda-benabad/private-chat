@@ -99,8 +99,11 @@ export default function ContactsScreen({ navigation }) {
       const me = raw ? JSON.parse(raw) : {};
       const myUid = me.uid;
       const otherUid = result.uid; // stored in users doc by ProfileSetupScreen
+
+      console.log('[ContactsScreen] handleStartChat — myUid:', myUid, '| otherUid:', otherUid);
+
       if (!myUid || !otherUid) {
-        console.warn('ContactsScreen: missing UID(s)', { myUid, otherUid });
+        console.warn('[ContactsScreen] BLOCKED: missing UID(s)', { myUid, otherUid, resultDoc: result });
         setStarting(false);
         return;
       }
@@ -108,17 +111,21 @@ export default function ContactsScreen({ navigation }) {
       const participantData = {
         [myUid]: {
           name: me.name || 'Me',
-          photoURL: me.photoUri || null,
+          photoURL: me.photoUri || null,   // session stores it as photoUri
           avatarColor: me.avatarColor || null,
         },
         [otherUid]: {
           name: result.name || 'Unknown',
-          photoURL: result.photoURL || null,
+          photoURL: result.photoUri || null, // Firestore stores it as photoUri
           avatarColor: result.avatarColor || null,
         },
       };
 
+      console.log('[ContactsScreen] participantData:', JSON.stringify(participantData));
+
       const chatId = await getOrCreateChat(myUid, otherUid, participantData);
+
+      console.log('[ContactsScreen] chatId returned:', chatId, '— navigating to Chat screen');
 
       navigation.navigate('Chat', {
         chatId,
