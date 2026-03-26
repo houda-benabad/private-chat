@@ -15,13 +15,14 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { db, storage } from '../firebase';
+import * as FileSystem from 'expo-file-system';
+import { db } from '../firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export default function ProfileSetupScreen({ navigation }) {
   const [name, setName] = useState('');
-  const [photoUri, setPhotoUri] = useState(null);   // local file URI for preview
+  const [photoUri, setPhotoUri] = useState(null);   // local file URI for preview only
+  const [photoBase64, setPhotoBase64] = useState(null); // data URI saved to Firestore
   const [uploading, setUploading] = useState(false);
 
   const handlePickImage = async () => {
@@ -35,31 +36,27 @@ export default function ProfileSetupScreen({ navigation }) {
       mediaTypes: ImagePicker.MediaTypeOptions.Images,
       allowsEditing: true,
       aspect: [1, 1],
-      quality: 0.8,
+      quality: 0.3,   // aggressive compression to stay well under Firestore's 1MB doc limit
     });
 
     if (!result.canceled) {
-      setPhotoUri(result.assets[0].uri);
+      const localUri = result.assets[0].uri;
+      setPhotoUri(localUri);  // immediate local preview
+
+      // Convert to base64 so it can be stored in Firestore and read by any device
+      try {
+        const base64 = await FileSystem.readAsStringAsync(localUri, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+        setPhotoBase64(`data:image/jpeg;base64,${base64}`);
+      } catch (err) {
+        console.warn('ProfileSetup base64 encode error:', err);
+        setPhotoBase64(null);
+      }
     }
   };
 
   const AVATAR_COLORS = ['#4D7E82', '#F1A167', '#ED2F3C', '#F3D292', '#6B8E7B', '#C47A8A', '#7B93AD'];
-
-  // Uploads the local file URI to Firebase Storage and returns the public HTTPS URL.
-  // Returns null if anything fails so profile creation can still proceed.
-  const uploadPhoto = async (localUri, phone) => {
-    try {
-      const response = await fetch(localUri);
-      const blob = await response.blob();
-      const storageRef = ref(storage, `profilePhotos/${phone}.jpg`);
-      await uploadBytes(storageRef, blob);
-      const downloadURL = await getDownloadURL(storageRef);
-      return downloadURL;
-    } catch (err) {
-      console.warn('ProfileSetup photo upload error:', err);
-      return null;
-    }
-  };
 
   const handleSave = async () => {
     if (name.trim().length === 0) return;
@@ -69,12 +66,12 @@ export default function ProfileSetupScreen({ navigation }) {
       const phone = await AsyncStorage.getItem('pending_phone');
       const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
 
-      // Upload to Storage if a photo was picked; fall back to null on failure
-      const photoURL = photoUri ? await uploadPhoto(photoUri, phone) : null;
+      // Use the base64 data URI if encoding succeeded, otherwise no photo
+      const photoData = photoBase64 || null;
 
       const userProfile = {
         name: name.trim(),
-        photoUri: photoURL,   // HTTPS URL (or null), not the local file:// URI
+        photoUri: photoData,
         uid: phone,
         avatarColor,
         createdAt: new Date().toISOString(),
@@ -82,13 +79,12 @@ export default function ProfileSetupScreen({ navigation }) {
 
       await AsyncStorage.setItem('user_session', JSON.stringify(userProfile));
 
-      // Update the Firestore user doc with profile info, using phone as uid
       if (phone) {
         await setDoc(
           doc(db, 'users', phone),
           {
             name: name.trim(),
-            photoUri: photoURL,   // HTTPS URL visible to all users
+            photoUri: photoData,
             uid: phone,
             avatarColor,
             profileCompletedAt: serverTimestamp(),
