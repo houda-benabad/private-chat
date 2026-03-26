@@ -78,11 +78,12 @@ export default function OTPScreen({ navigation, route }) {
     try {
       const userDoc = await getDoc(doc(db, 'users', normalizedPhone));
 
-      if (userDoc.exists() && userDoc.data().name) {
+      if (userDoc.exists() && (userDoc.data().username || userDoc.data().name)) {
         // Returning user — restore session and go straight to Chats
         const data = userDoc.data();
         const userSession = {
-          name: data.name,
+          name: data.username || data.name,
+          username: data.username || data.name,
           photoUri: data.photoUri || null,
           uid: normalizedPhone,
           avatarColor: data.avatarColor || null,

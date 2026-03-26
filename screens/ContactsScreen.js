@@ -14,7 +14,7 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 import { getOrCreateChat } from '../chatService';
 
 function Avatar({ name, photoURL, color, size = 54 }) {
@@ -42,47 +42,38 @@ function Avatar({ name, photoURL, color, size = 54 }) {
   );
 }
 
-function normalizePhone(raw) {
-  // Strip everything except digits and leading +
-  const cleaned = raw.trim();
-  const digits = cleaned.replace(/\D/g, '');
-  // Already has a + prefix → keep it
-  if (cleaned.startsWith('+')) return `+${digits}`;
-  // 11-digit starting with 1 → US/Canada
-  if (digits.startsWith('1') && digits.length === 11) return `+${digits}`;
-  // 10-digit → assume US/Canada
-  if (digits.length === 10) return `+1${digits}`;
-  // Everything else: just prepend +
-  return `+${digits}`;
-}
-
 export default function ContactsScreen({ navigation }) {
-  const [phone, setPhone] = useState('');
+  const [searchInput, setSearchInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
   const [starting, setStarting] = useState(false);
 
   const handleSearch = async () => {
-    const trimmed = phone.trim();
+    const trimmed = searchInput.trim();
     if (!trimmed) return;
     setLoading(true);
     setResult(null);
     try {
-      const normalized = normalizePhone(trimmed);
+      // Query by usernameLower for case-insensitive exact match
+      const snap = await getDocs(
+        query(
+          collection(db, 'users'),
+          where('usernameLower', '==', trimmed.toLowerCase())
+        )
+      );
 
-      // Direct document lookup — doc ID equals the normalized phone number
-      const userDoc = await getDoc(doc(db, 'users', normalized));
-
-      if (!userDoc.exists()) {
+      if (snap.empty) {
         setResult('not_found');
         return;
       }
 
+      const userDoc = snap.docs[0];
       const data = { id: userDoc.id, ...userDoc.data() };
 
-      // Self-check using the phone stored after login
-      const myPhone = await AsyncStorage.getItem('pending_phone');
-      setResult(normalized === myPhone ? 'self' : data);
+      // Self-check: compare uid, not phone, so it works regardless of session format
+      const raw = await AsyncStorage.getItem('user_session');
+      const me = raw ? JSON.parse(raw) : {};
+      setResult(data.uid === me.uid ? 'self' : data);
     } catch (err) {
       console.warn('ContactsScreen search error:', err);
       setResult('not_found');
@@ -110,13 +101,13 @@ export default function ContactsScreen({ navigation }) {
 
       const participantData = {
         [myUid]: {
-          name: me.name || 'Me',
-          photoURL: me.photoUri || null,   // session stores it as photoUri
+          name: me.username || me.name || 'Me',
+          photoURL: me.photoUri || null,
           avatarColor: me.avatarColor || null,
         },
         [otherUid]: {
-          name: result.name || 'Unknown',
-          photoURL: result.photoUri || null, // Firestore stores it as photoUri
+          name: result.username || result.name || 'Unknown',
+          photoURL: result.photoUri || null,
           avatarColor: result.avatarColor || null,
         },
       };
@@ -130,8 +121,8 @@ export default function ContactsScreen({ navigation }) {
       navigation.navigate('Chat', {
         chatId,
         otherUid,
-        otherName: result.name || 'Unknown',
-        otherPhotoURL: result.photoUri || null,   // Firestore stores it as photoUri
+        otherName: result.username || result.name || 'Unknown',
+        otherPhotoURL: result.photoUri || null,
         otherAvatarColor: result.avatarColor || null,
       });
     } catch (err) {
@@ -153,29 +144,31 @@ export default function ContactsScreen({ navigation }) {
         </View>
 
         <View style={styles.searchSection}>
-          <Text style={styles.label}>Phone number</Text>
+          <Text style={styles.label}>Username</Text>
           <View style={styles.inputRow}>
             <TextInput
               style={styles.input}
-              placeholder="+1 (555) 000-0000"
+              placeholder="Search by username..."
               placeholderTextColor="#c4b8ae"
-              value={phone}
-              onChangeText={setPhone}
-              keyboardType="phone-pad"
+              value={searchInput}
+              onChangeText={setSearchInput}
+              keyboardType="default"
               returnKeyType="search"
+              autoCapitalize="none"
+              autoCorrect={false}
               onSubmitEditing={handleSearch}
               autoFocus
             />
             <TouchableOpacity
-              style={[styles.searchBtn, (!phone.trim() || loading) && styles.searchBtnDisabled]}
+              style={[styles.searchBtn, (!searchInput.trim() || loading) && styles.searchBtnDisabled]}
               onPress={handleSearch}
-              disabled={!phone.trim() || loading}
+              disabled={!searchInput.trim() || loading}
               activeOpacity={0.8}
             >
               <Text style={styles.searchBtnText}>Find</Text>
             </TouchableOpacity>
           </View>
-          <Text style={styles.hint}>Include the country code, e.g. +1 for US/Canada.</Text>
+          <Text style={styles.hint}>Enter the exact username to find someone.</Text>
         </View>
 
         {loading && (
@@ -189,7 +182,7 @@ export default function ContactsScreen({ navigation }) {
             <Text style={styles.feedbackIcon}>🔍</Text>
             <Text style={styles.feedbackTitle}>No user found</Text>
             <Text style={styles.feedbackSub}>
-              This number isn't registered on Z.systems yet.
+              No one on Z.systems has that username yet.
             </Text>
           </View>
         )}
@@ -213,8 +206,7 @@ export default function ContactsScreen({ navigation }) {
               size={52}
             />
             <View style={styles.resultInfo}>
-              <Text style={styles.resultName}>{result.name || 'Unknown'}</Text>
-              <Text style={styles.resultPhone}>{result.phone}</Text>
+              <Text style={styles.resultName}>{result.username || result.name || 'Unknown'}</Text>
             </View>
             <TouchableOpacity
               style={[styles.messageBtn, starting && styles.messageBtnBusy]}

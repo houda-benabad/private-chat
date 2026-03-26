@@ -40,7 +40,7 @@ export default function ProfileScreen({ navigation }) {
       const raw = await AsyncStorage.getItem('user_session');
       if (raw) {
         const profile = JSON.parse(raw);
-        setName(profile.name || '');
+        setName(profile.username || profile.name || '');
         setPhotoUri(profile.photoUri || null);
         setAvatarColor(profile.avatarColor || AVATAR_COLORS[0]);
       }
@@ -77,6 +77,7 @@ export default function ProfileScreen({ navigation }) {
     try {
       const profile = {
         name: name.trim(),
+        username: name.trim(),
         photoUri,
         avatarColor,
         updatedAt: new Date().toISOString(),
@@ -87,6 +88,8 @@ export default function ProfileScreen({ navigation }) {
       if (phoneKey) {
         await updateDoc(doc(db, 'users', phoneKey), {
           name: name.trim(),
+          username: name.trim(),
+          usernameLower: name.trim().toLowerCase(),
           avatarColor,
           updatedAt: serverTimestamp(),
         });
@@ -195,35 +198,24 @@ export default function ProfileScreen({ navigation }) {
               <Text style={styles.cameraIcon}>📷</Text>
             </View>
           </TouchableOpacity>
-          <Text style={styles.profileName}>{name || 'Your Name'}</Text>
-          <Text style={styles.profilePhone}>{phone || '—'}</Text>
+          <Text style={styles.profileName}>{name || 'Your Username'}</Text>
         </View>
 
-        {/* Display Name */}
+        {/* Username */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Display Name</Text>
+          <Text style={styles.sectionLabel}>Username</Text>
           <TextInput
             style={styles.input}
             value={name}
             onChangeText={v => { setName(v); setDirty(true); }}
-            placeholder="Your name"
+            placeholder="Your username"
             placeholderTextColor="#c4b8ae"
             maxLength={30}
             returnKeyType="done"
+            autoCapitalize="none"
+            autoCorrect={false}
           />
           <Text style={styles.charCount}>{name.length}/30</Text>
-        </View>
-
-        {/* Phone */}
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>Phone Number</Text>
-          <View style={styles.phoneRow}>
-            <Text style={styles.phoneText}>{phone || '—'}</Text>
-            <View style={styles.verifiedBadge}>
-              <Text style={styles.verifiedText}>✓ Verified</Text>
-            </View>
-          </View>
-          <Text style={styles.fieldHint}>Phone number cannot be changed.</Text>
         </View>
 
         {/* Avatar Color */}

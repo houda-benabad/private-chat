@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   View,
   Text,
@@ -17,13 +17,19 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import { db } from '../firebase';
-import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, setDoc, serverTimestamp, collection, query, where, getDocs } from 'firebase/firestore';
+
+const USERNAME_REGEX = /^[a-zA-Z0-9 ._]+$/;
 
 export default function ProfileSetupScreen({ navigation }) {
-  const [name, setName] = useState('');
+  const [username, setUsername] = useState('');
+  const [usernameError, setUsernameError] = useState('');       // validation/taken message
+  const [usernameAvailable, setUsernameAvailable] = useState(false); // green checkmark
+  const [checkingUsername, setCheckingUsername] = useState(false);
   const [photoUri, setPhotoUri] = useState(null);   // local file URI for preview only
   const [photoBase64, setPhotoBase64] = useState(null); // data URI saved to Firestore
   const [uploading, setUploading] = useState(false);
+  const debounceTimer = useRef(null);
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -58,19 +64,77 @@ export default function ProfileSetupScreen({ navigation }) {
 
   const AVATAR_COLORS = ['#4D7E82', '#F1A167', '#ED2F3C', '#F3D292', '#6B8E7B', '#C47A8A', '#7B93AD'];
 
+  // Validate and debounce-check username availability as the user types
+  const handleUsernameChange = (text) => {
+    setUsername(text);
+    setUsernameAvailable(false);
+
+    if (text.length === 0) {
+      setUsernameError('');
+      return;
+    }
+    if (!USERNAME_REGEX.test(text)) {
+      setUsernameError('Only letters, numbers, spaces, dots and underscores allowed.');
+      return;
+    }
+    if (text.trim().length < 3) {
+      setUsernameError('Username must be at least 3 characters.');
+      return;
+    }
+
+    setUsernameError('');
+    setCheckingUsername(true);
+
+    clearTimeout(debounceTimer.current);
+    debounceTimer.current = setTimeout(async () => {
+      try {
+        const myPhone = await AsyncStorage.getItem('pending_phone');
+        const snap = await getDocs(
+          query(
+            collection(db, 'users'),
+            where('usernameLower', '==', text.trim().toLowerCase())
+          )
+        );
+        // Available if no docs found, or the only match is the current user's own doc
+        const taken = snap.docs.some(d => d.id !== myPhone);
+        if (taken) {
+          setUsernameError('Username already taken.');
+          setUsernameAvailable(false);
+        } else {
+          setUsernameError('');
+          setUsernameAvailable(true);
+        }
+      } catch (err) {
+        console.warn('ProfileSetup username check error:', err);
+      } finally {
+        setCheckingUsername(false);
+      }
+    }, 500);
+  };
+
+  // Clean up debounce timer on unmount
+  useEffect(() => () => clearTimeout(debounceTimer.current), []);
+
+  const canSave = username.trim().length >= 3 &&
+    USERNAME_REGEX.test(username) &&
+    !usernameError &&
+    usernameAvailable &&
+    !uploading;
+
   const handleSave = async () => {
-    if (name.trim().length === 0) return;
+    if (!canSave) return;
     setUploading(true);
 
     try {
       const phone = await AsyncStorage.getItem('pending_phone');
       const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+      const trimmedUsername = username.trim();
 
-      // Use the base64 data URI if encoding succeeded, otherwise no photo
       const photoData = photoBase64 || null;
 
       const userProfile = {
-        name: name.trim(),
+        name: trimmedUsername,      // keep 'name' key so participantData is compatible
+        username: trimmedUsername,
         photoUri: photoData,
         uid: phone,
         avatarColor,
@@ -83,7 +147,9 @@ export default function ProfileSetupScreen({ navigation }) {
         await setDoc(
           doc(db, 'users', phone),
           {
-            name: name.trim(),
+            username: trimmedUsername,
+            usernameLower: trimmedUsername.toLowerCase(),
+            name: trimmedUsername,   // kept for participantData compatibility
             photoUri: photoData,
             uid: phone,
             avatarColor,
@@ -144,29 +210,44 @@ export default function ProfileSetupScreen({ navigation }) {
             </Text>
           </View>
 
-          {/* Name Input */}
+          {/* Username Input */}
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>Display name</Text>
-            <TextInput
-              style={styles.nameInput}
-              placeholder="Enter your name..."
-              placeholderTextColor="#c4b8ae"
-              value={name}
-              onChangeText={setName}
-              maxLength={30}
-              returnKeyType="done"
-            />
-            <Text style={styles.charCount}>{name.length}/30</Text>
+            <Text style={styles.sectionLabel}>Choose a username</Text>
+            <View style={styles.usernameRow}>
+              <TextInput
+                style={[styles.nameInput, styles.usernameInput]}
+                placeholder="e.g. Eva Luna"
+                placeholderTextColor="#c4b8ae"
+                value={username}
+                onChangeText={handleUsernameChange}
+                maxLength={30}
+                returnKeyType="done"
+                autoCapitalize="none"
+                autoCorrect={false}
+              />
+              {/* Availability indicator */}
+              {checkingUsername && (
+                <ActivityIndicator size="small" color="#c4b8ae" style={styles.usernameIndicator} />
+              )}
+              {!checkingUsername && usernameAvailable && (
+                <Text style={[styles.usernameIndicator, styles.usernameAvailable]}>✓</Text>
+              )}
+              {!checkingUsername && usernameError && username.length > 0 && (
+                <Text style={[styles.usernameIndicator, styles.usernameTaken]}>✕</Text>
+              )}
+            </View>
+            {usernameError ? (
+              <Text style={styles.usernameErrorText}>{usernameError}</Text>
+            ) : (
+              <Text style={styles.charCount}>{username.length}/30</Text>
+            )}
           </View>
 
           {/* Save Button */}
           <TouchableOpacity
-            style={[
-              styles.button,
-              (name.trim().length === 0 || uploading) && styles.buttonDisabled,
-            ]}
+            style={[styles.button, !canSave && styles.buttonDisabled]}
             onPress={handleSave}
-            disabled={name.trim().length === 0 || uploading}
+            disabled={!canSave}
             activeOpacity={0.85}
           >
             {uploading
@@ -282,6 +363,31 @@ const styles = StyleSheet.create({
     fontSize: 10,
     textAlign: 'right',
     marginTop: 4,
+  },
+  usernameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  usernameInput: {
+    flex: 1,
+  },
+  usernameIndicator: {
+    marginLeft: 10,
+  },
+  usernameAvailable: {
+    color: '#4CAF50',
+    fontSize: 18,
+    fontWeight: '700',
+  },
+  usernameTaken: {
+    color: '#ED2F3C',
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  usernameErrorText: {
+    color: '#ED2F3C',
+    fontSize: 10,
+    marginTop: 5,
   },
   button: {
     backgroundColor: '#E46C53',
