@@ -131,7 +131,7 @@ export default function ContactsScreen({ navigation }) {
         chatId,
         otherUid,
         otherName: result.name || 'Unknown',
-        otherPhotoURL: result.photoURL || null,
+        otherPhotoURL: result.photoUri || null,   // Firestore stores it as photoUri
         otherAvatarColor: result.avatarColor || null,
       });
     } catch (err) {
@@ -208,7 +208,7 @@ export default function ContactsScreen({ navigation }) {
           <View style={styles.resultCard}>
             <Avatar
               name={result.name}
-              photoURL={result.photoURL}
+              photoURL={result.photoUri}
               color={result.avatarColor}
               size={52}
             />

@@ -44,7 +44,10 @@ export async function getOrCreateChat(currentUserId, otherUserId, participantDat
     });
     console.log('[getOrCreateChat] new chat doc created:', chatId);
   } else {
-    console.log('[getOrCreateChat] existing chat doc found:', chatId);
+    // Always refresh participantData so profile photo / name changes propagate.
+    // merge:true leaves lastMessage, lastMessageTime, etc. untouched.
+    await setDoc(chatRef, { participantData }, { merge: true });
+    console.log('[getOrCreateChat] existing chat doc updated with fresh participantData:', chatId);
   }
   return chatId;
 }

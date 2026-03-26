@@ -11,15 +11,18 @@ import {
   Platform,
   ScrollView,
   Image,
+  ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
-import { db } from '../firebase';
+import { db, storage } from '../firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 
 export default function ProfileSetupScreen({ navigation }) {
   const [name, setName] = useState('');
-  const [photoUri, setPhotoUri] = useState(null);
+  const [photoUri, setPhotoUri] = useState(null);   // local file URI for preview
+  const [uploading, setUploading] = useState(false);
 
   const handlePickImage = async () => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -42,30 +45,50 @@ export default function ProfileSetupScreen({ navigation }) {
 
   const AVATAR_COLORS = ['#4D7E82', '#F1A167', '#ED2F3C', '#F3D292', '#6B8E7B', '#C47A8A', '#7B93AD'];
 
+  // Uploads the local file URI to Firebase Storage and returns the public HTTPS URL.
+  // Returns null if anything fails so profile creation can still proceed.
+  const uploadPhoto = async (localUri, phone) => {
+    try {
+      const response = await fetch(localUri);
+      const blob = await response.blob();
+      const storageRef = ref(storage, `profilePhotos/${phone}.jpg`);
+      await uploadBytes(storageRef, blob);
+      const downloadURL = await getDownloadURL(storageRef);
+      return downloadURL;
+    } catch (err) {
+      console.warn('ProfileSetup photo upload error:', err);
+      return null;
+    }
+  };
+
   const handleSave = async () => {
     if (name.trim().length === 0) return;
+    setUploading(true);
 
-    const phone = await AsyncStorage.getItem('pending_phone');
-    const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
-
-    const userProfile = {
-      name: name.trim(),
-      photoUri: photoUri || null,
-      uid: phone,
-      avatarColor,
-      createdAt: new Date().toISOString(),
-    };
-
-    await AsyncStorage.setItem('user_session', JSON.stringify(userProfile));
-
-    // Update the Firestore user doc with profile info, using phone as uid
     try {
+      const phone = await AsyncStorage.getItem('pending_phone');
+      const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
+
+      // Upload to Storage if a photo was picked; fall back to null on failure
+      const photoURL = photoUri ? await uploadPhoto(photoUri, phone) : null;
+
+      const userProfile = {
+        name: name.trim(),
+        photoUri: photoURL,   // HTTPS URL (or null), not the local file:// URI
+        uid: phone,
+        avatarColor,
+        createdAt: new Date().toISOString(),
+      };
+
+      await AsyncStorage.setItem('user_session', JSON.stringify(userProfile));
+
+      // Update the Firestore user doc with profile info, using phone as uid
       if (phone) {
         await setDoc(
           doc(db, 'users', phone),
           {
             name: name.trim(),
-            photoUri: photoUri || null,
+            photoUri: photoURL,   // HTTPS URL visible to all users
             uid: phone,
             avatarColor,
             profileCompletedAt: serverTimestamp(),
@@ -74,7 +97,9 @@ export default function ProfileSetupScreen({ navigation }) {
         );
       }
     } catch (err) {
-      console.warn('ProfileSetup Firestore save error:', err);
+      console.warn('ProfileSetup save error:', err);
+    } finally {
+      setUploading(false);
     }
 
     navigation.replace('Chats');
@@ -142,13 +167,16 @@ export default function ProfileSetupScreen({ navigation }) {
           <TouchableOpacity
             style={[
               styles.button,
-              name.trim().length === 0 && styles.buttonDisabled,
+              (name.trim().length === 0 || uploading) && styles.buttonDisabled,
             ]}
             onPress={handleSave}
-            disabled={name.trim().length === 0}
+            disabled={name.trim().length === 0 || uploading}
             activeOpacity={0.85}
           >
-            <Text style={styles.buttonText}>Get Started →</Text>
+            {uploading
+              ? <ActivityIndicator color="#fff" size="small" />
+              : <Text style={styles.buttonText}>Get Started →</Text>
+            }
           </TouchableOpacity>
         </ScrollView>
       </KeyboardAvoidingView>
