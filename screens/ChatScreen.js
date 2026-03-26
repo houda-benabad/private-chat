@@ -13,7 +13,10 @@ import {
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
 import { sendMessage, listenToMessages } from '../chatService';
+import { setActiveChatId, clearActiveChatId } from '../notificationService';
 
 function Avatar({ name, photoURL, color, size = 36 }) {
   const initials = name
@@ -54,14 +57,37 @@ export default function ChatScreen({ navigation, route }) {
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
   const [myUid, setMyUid] = useState(null);
+  const [myName, setMyName] = useState('');
+  const [deletedAt, setDeletedAt] = useState(null);
   const flatListRef = useRef(null);
+
+  // Tell the notification handler which chat is open so it suppresses
+  // in-app banners for messages from this conversation.
+  useEffect(() => {
+    if (chatId) setActiveChatId(chatId);
+    return () => clearActiveChatId();
+  }, [chatId]);
 
   useEffect(() => {
     (async () => {
       const raw = await AsyncStorage.getItem('user_session');
       const session = raw ? JSON.parse(raw) : {};
-      console.log('[ChatScreen] loaded myUid:', session.uid, '| chatId:', chatId);
-      setMyUid(session.uid);
+      const uid = session.uid;
+      const name = session.username || session.name || '';
+      console.log('[ChatScreen] loaded myUid:', uid, '| chatId:', chatId);
+      setMyUid(uid);
+      setMyName(name);
+
+      // Check if the user previously hid this chat so we can filter old messages
+      if (uid && chatId) {
+        try {
+          const chatSnap = await getDoc(doc(db, 'chats', chatId));
+          const cutoff = chatSnap.data()?.deletedBy?.[uid] ?? null;
+          setDeletedAt(cutoff);
+        } catch (err) {
+          console.warn('[ChatScreen] deletedBy check error:', err);
+        }
+      }
     })();
   }, []);
 
@@ -70,9 +96,9 @@ export default function ChatScreen({ navigation, route }) {
       console.warn('[ChatScreen] chatId is missing — listenToMessages not started');
       return;
     }
-    const unsub = listenToMessages(chatId, setMessages);
+    const unsub = listenToMessages(chatId, setMessages, deletedAt);
     return () => unsub();
-  }, [chatId]);
+  }, [chatId, deletedAt]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
@@ -82,7 +108,7 @@ export default function ChatScreen({ navigation, route }) {
     }
     setText('');
     try {
-      await sendMessage(chatId, myUid, trimmed);
+      await sendMessage(chatId, myUid, trimmed, myName);
     } catch (err) {
       console.warn('ChatScreen send error:', err.code, err.message);
       setText(trimmed); // restore text so the user doesn't lose their message

@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import {
   View,
   Text,
@@ -12,9 +12,10 @@ import {
   TextInput,
   ActivityIndicator,
 } from 'react-native';
+import { Swipeable } from 'react-native-gesture-handler';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 // auth removed — uid is read from AsyncStorage session instead
-import { listenToChats } from '../chatService';
+import { listenToChats, hideChat } from '../chatService';
 
 function formatTime(timestamp) {
   if (!timestamp) return '';
@@ -58,28 +59,49 @@ function Avatar({ name, photoURL, color, size = 44 }) {
   );
 }
 
-function ChatRow({ item, currentUid, onPress }) {
+function ChatRow({ item, currentUid, onPress, onDelete }) {
   const otherUid = item.users?.find(u => u !== currentUid);
   const other = item.participantData?.[otherUid] || {};
+  const swipeableRef = useRef(null);
+
+  const renderRightActions = () => (
+    <TouchableOpacity
+      style={styles.deleteAction}
+      onPress={() => {
+        swipeableRef.current?.close();
+        onDelete(item.id, other.name);
+      }}
+      activeOpacity={0.85}
+    >
+      <Text style={styles.deleteActionText}>Delete</Text>
+    </TouchableOpacity>
+  );
 
   return (
-    <TouchableOpacity
-      style={styles.row}
-      onPress={() => onPress(item, other, otherUid)}
-      activeOpacity={0.7}
+    <Swipeable
+      ref={swipeableRef}
+      renderRightActions={renderRightActions}
+      overshootRight={false}
+      friction={2}
     >
-      <Avatar name={other.name} photoURL={other.photoURL} color={other.avatarColor} />
+      <TouchableOpacity
+        style={styles.row}
+        onPress={() => onPress(item, other, otherUid)}
+        activeOpacity={0.7}
+      >
+        <Avatar name={other.name} photoURL={other.photoURL} color={other.avatarColor} />
 
-      <View style={styles.rowContent}>
-        <View style={styles.rowTop}>
-          <Text style={styles.rowName} numberOfLines={1}>{other.name || 'Unknown'}</Text>
-          <Text style={styles.rowTime}>{formatTime(item.lastMessageTime)}</Text>
+        <View style={styles.rowContent}>
+          <View style={styles.rowTop}>
+            <Text style={styles.rowName} numberOfLines={1}>{other.name || 'Unknown'}</Text>
+            <Text style={styles.rowTime}>{formatTime(item.lastMessageTime)}</Text>
+          </View>
+          <Text style={styles.rowPreview} numberOfLines={1}>
+            {item.lastMessage || 'No messages yet'}
+          </Text>
         </View>
-        <Text style={styles.rowPreview} numberOfLines={1}>
-          {item.lastMessage || 'No messages yet'}
-        </Text>
-      </View>
-    </TouchableOpacity>
+      </TouchableOpacity>
+    </Swipeable>
   );
 }
 
@@ -121,6 +143,28 @@ export default function ChatsScreen({ navigation }) {
       },
     ]);
   };
+
+  const handleDeleteChat = useCallback((chatId, otherName) => {
+    Alert.alert(
+      'Delete Conversation',
+      `This will remove this conversation from your chat list. You can still receive new messages from ${otherName || 'this person'}.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await hideChat(chatId, currentUid);
+            } catch (err) {
+              console.warn('[ChatsScreen] hideChat error:', err);
+              Alert.alert('Error', 'Could not delete the conversation. Please try again.');
+            }
+          },
+        },
+      ]
+    );
+  }, [currentUid]);
 
   const handleOpenChat = useCallback((chat, otherUser, otherUid) => {
     navigation.navigate('Chat', {
@@ -188,6 +232,7 @@ export default function ChatsScreen({ navigation }) {
               item={item}
               currentUid={currentUid}
               onPress={handleOpenChat}
+              onDelete={handleDeleteChat}
             />
           )}
           contentContainerStyle={styles.list}
@@ -321,6 +366,17 @@ const styles = StyleSheet.create({
     height: 1,
     backgroundColor: '#f5efe8',
     marginLeft: 70,
+  },
+  deleteAction: {
+    backgroundColor: '#FF3B30',
+    justifyContent: 'center',
+    alignItems: 'center',
+    width: 80,
+  },
+  deleteActionText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
   },
 
   empty: {

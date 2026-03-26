@@ -91,7 +91,7 @@ export default function OTPScreen({ navigation, route }) {
         };
         await AsyncStorage.setItem('user_session', JSON.stringify(userSession));
         await AsyncStorage.setItem('pending_phone', normalizedPhone);
-        navigation.replace('Chats');
+        navigation.replace('MainTabs');
       } else {
         // New user — go to Profile Setup
         navigation.navigate('ProfileSetup');

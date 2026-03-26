@@ -118,12 +118,16 @@ export default function ContactsScreen({ navigation }) {
 
       console.log('[ContactsScreen] chatId returned:', chatId, '— navigating to Chat screen');
 
-      navigation.navigate('Chat', {
-        chatId,
-        otherUid,
-        otherName: result.username || result.name || 'Unknown',
-        otherPhotoURL: result.photoUri || null,
-        otherAvatarColor: result.avatarColor || null,
+      // Navigate into the ChatsTab stack so the tab bar hides correctly
+      navigation.navigate('ChatsTab', {
+        screen: 'Chat',
+        params: {
+          chatId,
+          otherUid,
+          otherName: result.username || result.name || 'Unknown',
+          otherPhotoURL: result.photoUri || null,
+          otherAvatarColor: result.avatarColor || null,
+        },
       });
     } catch (err) {
       console.warn('ContactsScreen startChat error:', err);

@@ -14,6 +14,7 @@ import {
   Timestamp,
   writeBatch,
   deleteDoc,
+  deleteField,
 } from 'firebase/firestore';
 
 function buildChatId(uid1, uid2) {
@@ -45,8 +46,13 @@ export async function getOrCreateChat(currentUserId, otherUserId, participantDat
     console.log('[getOrCreateChat] new chat doc created:', chatId);
   } else {
     // Always refresh participantData so profile photo / name changes propagate.
-    // merge:true leaves lastMessage, lastMessageTime, etc. untouched.
-    await setDoc(chatRef, { participantData }, { merge: true });
+    // Also clear the current user's deletedBy entry so the chat reappears
+    // if they previously hid it and are now intentionally restarting it.
+    await setDoc(
+      chatRef,
+      { participantData, deletedBy: { [currentUserId]: deleteField() } },
+      { merge: true }
+    );
     console.log('[getOrCreateChat] existing chat doc updated with fresh participantData:', chatId);
   }
   return chatId;
@@ -54,8 +60,10 @@ export async function getOrCreateChat(currentUserId, otherUserId, participantDat
 
 /**
  * Adds a message to the chat and updates lastMessage / lastMessageTime on the chat doc.
+ * senderName is used as the push notification title.
+ * Push delivery is fire-and-forget — never blocks or throws from here.
  */
-export async function sendMessage(chatId, senderId, text) {
+export async function sendMessage(chatId, senderId, text, senderName = '') {
   console.log('[sendMessage] chatId:', chatId, '| senderId:', senderId, '| text:', text);
   try {
     const now = Timestamp.fromDate(new Date());
@@ -74,9 +82,52 @@ export async function sendMessage(chatId, senderId, text) {
       { merge: true }
     );
     console.log('[sendMessage] chat doc updated OK');
+
+    // Fire-and-forget push notification — intentionally not awaited so a
+    // notification failure never blocks or surfaces an error to the sender.
+    _sendPushToOtherUser({ chatId, senderId, senderName, text });
   } catch (err) {
     console.error('[sendMessage] ERROR — code:', err.code, '| message:', err.message);
     throw err; // re-throw so ChatScreen can restore the input text
+  }
+}
+
+/**
+ * Internal helper: looks up the other participant's push token and fires the
+ * Expo push notification. Swallows all errors — never throws.
+ */
+async function _sendPushToOtherUser({ chatId, senderId, senderName, text }) {
+  try {
+    // 1. Get the chat doc to find the other user's UID
+    const chatSnap = await getDoc(doc(db, 'chats', chatId));
+    if (!chatSnap.exists()) return;
+    const chatData = chatSnap.data();
+
+    const otherUid = (chatData.users || []).find(u => u !== senderId);
+    if (!otherUid) return;
+
+    // 2. Skip if the other user has hidden this conversation (deletedBy entry
+    //    exists and no newer messages have been sent since they hid it)
+    const otherDeletedAt = chatData.deletedBy?.[otherUid];
+    if (otherDeletedAt) {
+      const lastTime = chatData.lastMessageTime;
+      if (!lastTime || lastTime.toMillis() <= otherDeletedAt.toMillis()) {
+        console.log('[notifications] other user hid this chat — skipping push');
+        return;
+      }
+    }
+
+    // 3. Get the other user's push token
+    const otherSnap = await getDoc(doc(db, 'users', otherUid));
+    if (!otherSnap.exists()) return;
+    const expoPushToken = otherSnap.data()?.expoPushToken;
+    if (!expoPushToken) return;
+
+    // 4. Send via the Expo push service (imported lazily to avoid circular deps)
+    const { sendPushNotification } = await import('./notificationService');
+    sendPushNotification({ expoPushToken, senderName, messageText: text, chatId, senderUid: senderId });
+  } catch (err) {
+    console.warn('[notifications] _sendPushToOtherUser error:', err);
   }
 }
 
@@ -118,11 +169,26 @@ export async function deleteAccount(uid) {
 }
 
 /**
+ * Hides a chat for the current user only (soft delete).
+ * Records a deletedBy timestamp on the chat doc — no documents are removed.
+ * The chat reappears automatically if a new message arrives after this timestamp.
+ */
+export async function hideChat(chatId, currentUserId) {
+  await setDoc(
+    doc(db, 'chats', chatId),
+    { deletedBy: { [currentUserId]: Timestamp.fromDate(new Date()) } },
+    { merge: true }
+  );
+}
+
+/**
  * Real-time listener on the messages subcollection ordered by timestamp asc.
+ * If deletedAt (a Firestore Timestamp) is provided, only messages AFTER that
+ * time are returned — so users who hid then restarted a chat only see new msgs.
  * Returns the unsubscribe function.
  */
-export function listenToMessages(chatId, callback) {
-  console.log('[listenToMessages] subscribing — chatId:', chatId);
+export function listenToMessages(chatId, callback, deletedAt = null) {
+  console.log('[listenToMessages] subscribing — chatId:', chatId, '| deletedAt:', deletedAt);
   const q = query(
     collection(db, 'chats', chatId, 'messages'),
     orderBy('timestamp', 'asc')
@@ -130,8 +196,12 @@ export function listenToMessages(chatId, callback) {
   return onSnapshot(
     q,
     snap => {
-      console.log('[listenToMessages] snapshot — chatId:', chatId, '| count:', snap.docs.length);
-      callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      let messages = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      if (deletedAt) {
+        messages = messages.filter(m => m.timestamp && m.timestamp.toMillis() > deletedAt.toMillis());
+      }
+      console.log('[listenToMessages] snapshot — chatId:', chatId, '| count:', messages.length);
+      callback(messages);
     },
     err => console.error('[listenToMessages] ERROR — code:', err.code, '| message:', err.message)
   );
@@ -152,8 +222,17 @@ export function listenToChats(currentUserId, callback) {
   return onSnapshot(
     q,
     snap => {
-      console.log('[listenToChats] snapshot — uid:', currentUserId, '| count:', snap.docs.length);
-      callback(snap.docs.map(d => ({ id: d.id, ...d.data() })));
+      const chats = snap.docs
+        .map(d => ({ id: d.id, ...d.data() }))
+        .filter(chat => {
+          const deletedAt = chat.deletedBy?.[currentUserId];
+          if (!deletedAt) return true; // not hidden
+          // Reappear if a new message arrived after the user hid it
+          const lastTime = chat.lastMessageTime;
+          return lastTime && lastTime.toMillis() > deletedAt.toMillis();
+        });
+      console.log('[listenToChats] snapshot — uid:', currentUserId, '| raw:', snap.docs.length, '| visible:', chats.length);
+      callback(chats);
     },
     err => console.error('[listenToChats] ERROR — code:', err.code, '| message:', err.message, err)
   );

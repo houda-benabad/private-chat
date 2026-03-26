@@ -164,7 +164,7 @@ export default function ProfileSetupScreen({ navigation }) {
       setUploading(false);
     }
 
-    navigation.replace('Chats');
+    navigation.replace('MainTabs');
   };
 
   return (

@@ -13,7 +13,7 @@ export default function SplashScreen({ navigation }) {
       await new Promise(resolve => setTimeout(resolve, 1200));
       const session = raw ? JSON.parse(raw) : null;
       if (session?.uid) {
-        navigation.replace('Chats');
+        navigation.replace('MainTabs');
       } else {
         navigation.replace('Phone');
       }
