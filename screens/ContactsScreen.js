@@ -14,7 +14,8 @@ import {
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { db } from '../firebase';
-import { doc, getDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
+import { doc, getDoc } from 'firebase/firestore';
+import { getOrCreateChat } from '../chatService';
 
 function Avatar({ name, photoURL, color, size = 54 }) {
   const initials = name
@@ -94,36 +95,34 @@ export default function ContactsScreen({ navigation }) {
     if (!result || typeof result === 'string') return;
     setStarting(true);
     try {
-      const myPhone = await AsyncStorage.getItem('pending_phone');
-      const foundPhone = result.id; // doc ID is the normalized phone
-
       const raw = await AsyncStorage.getItem('user_session');
       const me = raw ? JSON.parse(raw) : {};
+      const myUid = me.uid;
+      const otherUid = result.uid; // stored in users doc by ProfileSetupScreen
+      if (!myUid || !otherUid) {
+        console.warn('ContactsScreen: missing UID(s)', { myUid, otherUid });
+        setStarting(false);
+        return;
+      }
 
-      const ref = await addDoc(collection(db, 'conversations'), {
-        participants: [myPhone, foundPhone],
-        participantData: {
-          [myPhone]: {
-            name: me.name || 'Me',
-            photoURL: me.photoUri || null,
-            avatarColor: me.avatarColor || null,
-          },
-          [foundPhone]: {
-            name: result.name || 'Unknown',
-            photoURL: result.photoURL || null,
-            avatarColor: result.avatarColor || null,
-          },
+      const participantData = {
+        [myUid]: {
+          name: me.name || 'Me',
+          photoURL: me.photoUri || null,
+          avatarColor: me.avatarColor || null,
         },
-        lastMessage: null,
-        unreadCount: { [myPhone]: 0, [foundPhone]: 0 },
-        updatedAt: serverTimestamp(),
-        createdAt: serverTimestamp(),
-      });
-      const conversationId = ref.id;
+        [otherUid]: {
+          name: result.name || 'Unknown',
+          photoURL: result.photoURL || null,
+          avatarColor: result.avatarColor || null,
+        },
+      };
+
+      const chatId = await getOrCreateChat(myUid, otherUid, participantData);
 
       navigation.navigate('Chat', {
-        conversationId,
-        otherUid: foundUid,
+        chatId,
+        otherUid,
         otherName: result.name || 'Unknown',
         otherPhotoURL: result.photoURL || null,
         otherAvatarColor: result.avatarColor || null,

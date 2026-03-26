@@ -13,17 +13,7 @@ import {
   Image,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '../firebase';
-import {
-  collection,
-  addDoc,
-  onSnapshot,
-  query,
-  orderBy,
-  serverTimestamp,
-  doc,
-  updateDoc,
-} from 'firebase/firestore';
+import { sendMessage, listenToMessages } from '../chatService';
 
 function Avatar({ name, photoURL, color, size = 36 }) {
   const initials = name
@@ -60,46 +50,32 @@ function formatTime(timestamp) {
 }
 
 export default function ChatScreen({ navigation, route }) {
-  const { conversationId, otherName, otherPhotoURL, otherAvatarColor } = route.params || {};
+  const { chatId, otherName, otherPhotoURL, otherAvatarColor } = route.params || {};
   const [messages, setMessages] = useState([]);
   const [text, setText] = useState('');
-  const [myPhone, setMyPhone] = useState(null);
+  const [myUid, setMyUid] = useState(null);
   const flatListRef = useRef(null);
 
   useEffect(() => {
-    AsyncStorage.getItem('pending_phone').then(p => setMyPhone(p));
+    (async () => {
+      const raw = await AsyncStorage.getItem('user_session');
+      const session = raw ? JSON.parse(raw) : {};
+      setMyUid(session.uid);
+    })();
   }, []);
 
   useEffect(() => {
-    if (!conversationId) return;
-    const q = query(
-      collection(db, 'conversations', conversationId, 'messages'),
-      orderBy('timestamp', 'asc')
-    );
-    const unsub = onSnapshot(
-      q,
-      snap => setMessages(snap.docs.map(d => ({ id: d.id, ...d.data() }))),
-      err => console.warn('ChatScreen snapshot error:', err)
-    );
+    if (!chatId) return;
+    const unsub = listenToMessages(chatId, setMessages);
     return () => unsub();
-  }, [conversationId]);
+  }, [chatId]);
 
   const handleSend = async () => {
     const trimmed = text.trim();
-    if (!trimmed || !myPhone) return;
+    if (!trimmed || !myUid) return;
     setText('');
     try {
-      await addDoc(collection(db, 'conversations', conversationId, 'messages'), {
-        text: trimmed,
-        senderId: myPhone,
-        timestamp: serverTimestamp(),
-        type: 'text',
-      });
-      await updateDoc(doc(db, 'conversations', conversationId), {
-        lastMessage: { text: trimmed, senderId: myPhone, timestamp: serverTimestamp() },
-        [`unreadCount.${myPhone}`]: 0,
-        updatedAt: serverTimestamp(),
-      });
+      await sendMessage(chatId, myUid, trimmed);
     } catch (err) {
       console.warn('ChatScreen send error:', err);
     }
@@ -114,7 +90,7 @@ export default function ChatScreen({ navigation, route }) {
       );
     }
 
-    const isMe = item.senderId === myPhone;
+    const isMe = item.senderId === myUid;
     const prevItem = messages[index - 1];
     const showTime = !prevItem || (
       item.timestamp && prevItem.timestamp &&
@@ -144,7 +120,6 @@ export default function ChatScreen({ navigation, route }) {
     <SafeAreaView style={styles.safe}>
       <StatusBar barStyle="light-content" backgroundColor="#4D7E82" />
 
-      {/* Teal Header */}
       <View style={styles.header}>
         <TouchableOpacity
           onPress={() => navigation.goBack()}
@@ -165,7 +140,6 @@ export default function ChatScreen({ navigation, route }) {
           <Text style={styles.headerName} numberOfLines={1}>
             {otherName || 'Chat'}
           </Text>
-          <Text style={styles.headerStatus}>Online</Text>
         </View>
       </View>
 
@@ -173,7 +147,6 @@ export default function ChatScreen({ navigation, route }) {
         style={styles.flex}
         behavior={Platform.OS === 'ios' ? 'padding' : undefined}
       >
-        {/* Messages list */}
         <FlatList
           ref={flatListRef}
           data={messages}
@@ -197,7 +170,6 @@ export default function ChatScreen({ navigation, route }) {
           }
         />
 
-        {/* Input bar */}
         <View style={styles.inputBar}>
           <Text style={styles.emojiIcon}>😊</Text>
           <TextInput
@@ -235,7 +207,6 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFF9F5',
   },
 
-  // Header
   header: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -261,13 +232,7 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#fff',
   },
-  headerStatus: {
-    fontSize: 9,
-    color: 'rgba(255,255,255,0.6)',
-    marginTop: 1,
-  },
 
-  // Messages
   messagesList: {
     paddingHorizontal: 12,
     paddingTop: 12,
@@ -330,7 +295,6 @@ const styles = StyleSheet.create({
     color: 'rgba(255,255,255,0.6)',
   },
 
-  // System message
   systemMsg: {
     alignSelf: 'center',
     backgroundColor: 'rgba(77,126,130,0.08)',
@@ -347,7 +311,6 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
 
-  // Empty state
   emptyState: {
     flex: 1,
     alignItems: 'center',
@@ -364,7 +327,6 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
 
-  // Input bar
   inputBar: {
     flexDirection: 'row',
     alignItems: 'flex-end',

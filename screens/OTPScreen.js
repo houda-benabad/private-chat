@@ -9,16 +9,24 @@ import {
   StatusBar,
   KeyboardAvoidingView,
   Platform,
+  Alert,
+  ActivityIndicator,
 } from 'react-native';
+import { signInWithPhoneNumber } from 'firebase/auth';
+import { auth, db } from '../firebase';
+import { doc, getDoc } from 'firebase/firestore';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import { getConfirmationResult, setConfirmationResult } from '../authSession';
 
 const OTP_LENGTH = 6;
 const RESEND_SECONDS = 30;
 
 export default function OTPScreen({ navigation, route }) {
-  const { phoneNumber } = route.params || {};
+  const { phoneNumber, normalizedPhone } = route.params || {};
   const [otp, setOtp] = useState(Array(OTP_LENGTH).fill(''));
   const [countdown, setCountdown] = useState(RESEND_SECONDS);
   const [canResend, setCanResend] = useState(false);
+  const [verifying, setVerifying] = useState(false);
   const inputs = useRef([]);
 
   // Countdown timer
@@ -48,19 +56,50 @@ export default function OTPScreen({ navigation, route }) {
     }
   };
 
-  const handleResend = () => {
+  const handleResend = async () => {
     if (!canResend) return;
     setOtp(Array(OTP_LENGTH).fill(''));
     setCountdown(RESEND_SECONDS);
     setCanResend(false);
     inputs.current[0]?.focus();
+    try {
+      const confirmation = await signInWithPhoneNumber(auth, normalizedPhone);
+      setConfirmationResult(confirmation);
+    } catch (err) {
+      Alert.alert('Error', 'Could not resend the code. Please go back and try again.');
+    }
   };
 
   const isComplete = otp.every(d => d !== '');
 
-  const handleVerify = () => {
-    if (isComplete) {
+  const handleVerify = async () => {
+    if (!isComplete || verifying) return;
+    setVerifying(true);
+    try {
+      const userDoc = await getDoc(doc(db, 'users', normalizedPhone));
+
+      if (userDoc.exists() && userDoc.data().name) {
+        // Returning user — restore session and go straight to Chats
+        const data = userDoc.data();
+        const userSession = {
+          name: data.name,
+          photoUri: data.photoUri || null,
+          uid: normalizedPhone,
+          avatarColor: data.avatarColor || null,
+          createdAt: data.profileCompletedAt || new Date().toISOString(),
+        };
+        await AsyncStorage.setItem('user_session', JSON.stringify(userSession));
+        await AsyncStorage.setItem('pending_phone', normalizedPhone);
+        navigation.replace('Chats');
+      } else {
+        // New user — go to Profile Setup
+        navigation.navigate('ProfileSetup');
+      }
+    } catch (err) {
+      console.warn('OTPScreen verify error:', err);
       navigation.navigate('ProfileSetup');
+    } finally {
+      setVerifying(false);
     }
   };
 
@@ -68,6 +107,7 @@ export default function OTPScreen({ navigation, route }) {
 
   return (
     <SafeAreaView style={styles.safe}>
+
       <StatusBar barStyle="dark-content" backgroundColor="#FDF5EE" />
       <KeyboardAvoidingView
         style={styles.container}
@@ -128,12 +168,15 @@ export default function OTPScreen({ navigation, route }) {
 
         {/* Verify Button */}
         <TouchableOpacity
-          style={[styles.button, !isComplete && styles.buttonDisabled]}
+          style={[styles.button, (!isComplete || verifying) && styles.buttonDisabled]}
           onPress={handleVerify}
-          disabled={!isComplete}
+          disabled={!isComplete || verifying}
           activeOpacity={0.85}
         >
-          <Text style={styles.buttonText}>Verify →</Text>
+          {verifying
+            ? <ActivityIndicator color="#E46C53" size="small" />
+            : <Text style={styles.buttonText}>Verify →</Text>
+          }
         </TouchableOpacity>
       </KeyboardAvoidingView>
     </SafeAreaView>

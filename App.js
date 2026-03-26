@@ -10,6 +10,7 @@ import ProfileSetupScreen from './screens/ProfileSetupScreen';
 import ChatsScreen from './screens/ChatsScreen';
 import ContactsScreen from './screens/ContactsScreen';
 import ProfileScreen from './screens/ProfileScreen';
+import ChatScreen from './screens/ChatScreen';
 
 const Stack = createNativeStackNavigator();
 const Tab = createBottomTabNavigator();
@@ -92,6 +93,11 @@ export default function App() {
           name="Chats"
           component={MainTabs}
           options={{ animation: 'fade' }}
+        />
+        <Stack.Screen
+          name="Chat"
+          component={ChatScreen}
+          options={{ animation: 'slide_from_right' }}
         />
       </Stack.Navigator>
     </NavigationContainer>

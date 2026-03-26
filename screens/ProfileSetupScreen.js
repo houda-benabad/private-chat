@@ -40,26 +40,34 @@ export default function ProfileSetupScreen({ navigation }) {
     }
   };
 
+  const AVATAR_COLORS = ['#4D7E82', '#F1A167', '#ED2F3C', '#F3D292', '#6B8E7B', '#C47A8A', '#7B93AD'];
+
   const handleSave = async () => {
     if (name.trim().length === 0) return;
+
+    const phone = await AsyncStorage.getItem('pending_phone');
+    const avatarColor = AVATAR_COLORS[Math.floor(Math.random() * AVATAR_COLORS.length)];
 
     const userProfile = {
       name: name.trim(),
       photoUri: photoUri || null,
+      uid: phone,
+      avatarColor,
       createdAt: new Date().toISOString(),
     };
 
     await AsyncStorage.setItem('user_session', JSON.stringify(userProfile));
 
-    // Update the Firestore user doc with profile info
+    // Update the Firestore user doc with profile info, using phone as uid
     try {
-      const phone = await AsyncStorage.getItem('pending_phone');
       if (phone) {
         await setDoc(
           doc(db, 'users', phone),
           {
             name: name.trim(),
             photoUri: photoUri || null,
+            uid: phone,
+            avatarColor,
             profileCompletedAt: serverTimestamp(),
           },
           { merge: true }

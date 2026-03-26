@@ -9,9 +9,10 @@ export default function SplashScreen({ navigation }) {
 
   const checkSession = async () => {
     try {
-      const user = await AsyncStorage.getItem('user_session');
+      const raw = await AsyncStorage.getItem('user_session');
       await new Promise(resolve => setTimeout(resolve, 1200));
-      if (user) {
+      const session = raw ? JSON.parse(raw) : null;
+      if (session?.uid) {
         navigation.replace('Chats');
       } else {
         navigation.replace('Phone');

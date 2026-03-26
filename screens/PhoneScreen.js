@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   View,
   Text,
@@ -15,8 +15,10 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { db } from '../firebase';
+import { signInWithPhoneNumber } from 'firebase/auth';
+import { auth, db } from '../firebase';
 import { doc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { setConfirmationResult } from '../authSession';
 
 const COUNTRIES = [
   { name: 'Morocco', code: 'MA', dial: '+212', flag: '🇲🇦' },
@@ -63,8 +65,9 @@ const COUNTRIES = [
 ];
 
 function normalizePhone(dial, local) {
-  const digits = (dial + local).replace(/\D/g, '');
-  return `+${digits}`;
+  const localDigits = local.replace(/\D/g, '').replace(/^0+/, '');
+  const dialDigits = dial.replace(/\D/g, '');
+  return `+${dialDigits}${localDigits}`;
 }
 
 export default function PhoneScreen({ navigation }) {
@@ -85,8 +88,8 @@ export default function PhoneScreen({ navigation }) {
     try {
       const normalized = normalizePhone(selected.dial, phone);
       const displayPhone = `${selected.dial} ${phone}`;
+      console.log('Normalized phone:', normalized);
 
-      // Save phone to Firestore users collection
       await setDoc(
         doc(db, 'users', normalized),
         {
@@ -98,14 +101,14 @@ export default function PhoneScreen({ navigation }) {
         },
         { merge: true }
       );
+      console.log('Firestore save success');
 
-      // Keep phone in AsyncStorage for later steps
       await AsyncStorage.setItem('pending_phone', normalized);
 
-      navigation.navigate('OTP', { phoneNumber: displayPhone });
+      navigation.navigate('OTP', { phoneNumber: displayPhone, normalizedPhone: normalized });
     } catch (err) {
-      console.warn('PhoneScreen save error:', err);
-      Alert.alert('Error', 'Could not save your number. Please try again.');
+      console.log('Full error:', JSON.stringify(err));
+      Alert.alert('Error', err.message);
     } finally {
       setLoading(false);
     }
@@ -113,6 +116,7 @@ export default function PhoneScreen({ navigation }) {
 
   return (
     <SafeAreaView style={styles.safe}>
+
       <StatusBar barStyle="dark-content" backgroundColor="#FDF5EE" />
       <KeyboardAvoidingView
         style={styles.container}

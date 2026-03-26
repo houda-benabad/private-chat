@@ -15,7 +15,7 @@ import {
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import * as ImagePicker from 'expo-image-picker';
 import { CommonActions } from '@react-navigation/native';
-import { auth, db } from '../firebase';
+import { db } from '../firebase';
 import { doc, updateDoc, serverTimestamp } from 'firebase/firestore';
 
 const AVATAR_COLORS = ['#4D7E82', '#E46C53', '#F1A167', '#ED2F3C', '#F3D292', '#4C7B3B'];
@@ -42,8 +42,8 @@ export default function ProfileScreen({ navigation }) {
         setPhotoUri(profile.photoUri || null);
         setAvatarColor(profile.avatarColor || AVATAR_COLORS[0]);
       }
-      const phoneNumber = auth.currentUser?.phoneNumber;
-      if (phoneNumber) setPhone(phoneNumber);
+      const raw2 = await AsyncStorage.getItem('pending_phone');
+      if (raw2) setPhone(raw2);
     } catch (err) {
       console.warn('ProfileScreen load error:', err);
     } finally {
@@ -81,9 +81,9 @@ export default function ProfileScreen({ navigation }) {
       };
       await AsyncStorage.setItem('user_session', JSON.stringify(profile));
 
-      const uid = auth.currentUser?.uid;
-      if (uid) {
-        await updateDoc(doc(db, 'users', uid), {
+      const phoneKey = await AsyncStorage.getItem('pending_phone');
+      if (phoneKey) {
+        await updateDoc(doc(db, 'users', phoneKey), {
           name: name.trim(),
           avatarColor,
           updatedAt: serverTimestamp(),
@@ -106,7 +106,7 @@ export default function ProfileScreen({ navigation }) {
         style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem('user_session');
-          await auth.signOut();
+          await AsyncStorage.removeItem('pending_phone');
           navigation.dispatch(
             CommonActions.reset({ index: 0, routes: [{ name: 'Phone' }] })
           );

@@ -10,10 +10,11 @@ import {
   Image,
   Alert,
   TextInput,
+  ActivityIndicator,
 } from 'react-native';
-import { auth, db } from '../firebase';
-import { collection, query, where, orderBy, onSnapshot } from 'firebase/firestore';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+// auth removed — uid is read from AsyncStorage session instead
+import { listenToChats } from '../chatService';
 
 function formatTime(timestamp) {
   if (!timestamp) return '';
@@ -57,76 +58,53 @@ function Avatar({ name, photoURL, color, size = 44 }) {
   );
 }
 
-function ConversationRow({ item, currentUid, onPress }) {
-  const otherUid = item.participants.find(p => p !== currentUid);
+function ChatRow({ item, currentUid, onPress }) {
+  const otherUid = item.users?.find(u => u !== currentUid);
   const other = item.participantData?.[otherUid] || {};
-  const unread = item.unreadCount?.[currentUid] || 0;
-  const lastMsg = item.lastMessage;
-
-  const previewText = lastMsg
-    ? lastMsg.senderId === currentUid
-      ? `You: ${lastMsg.text}`
-      : lastMsg.text
-    : 'No messages yet';
 
   return (
-    <TouchableOpacity style={styles.row} onPress={() => onPress(item, other, otherUid)} activeOpacity={0.7}>
+    <TouchableOpacity
+      style={styles.row}
+      onPress={() => onPress(item, other, otherUid)}
+      activeOpacity={0.7}
+    >
       <Avatar name={other.name} photoURL={other.photoURL} color={other.avatarColor} />
 
       <View style={styles.rowContent}>
         <View style={styles.rowTop}>
           <Text style={styles.rowName} numberOfLines={1}>{other.name || 'Unknown'}</Text>
-          <Text style={[styles.rowTime, unread > 0 && styles.rowTimeUnread]}>
-            {formatTime(lastMsg?.timestamp)}
-          </Text>
+          <Text style={styles.rowTime}>{formatTime(item.lastMessageTime)}</Text>
         </View>
-        <View style={styles.rowBottom}>
-          <Text
-            style={[styles.rowPreview, unread > 0 && styles.rowPreviewUnread]}
-            numberOfLines={1}
-          >
-            {previewText}
-          </Text>
-          {unread > 0 && (
-            <View style={styles.badge}>
-              <Text style={styles.badgeText}>{unread > 99 ? '99+' : unread}</Text>
-            </View>
-          )}
-        </View>
+        <Text style={styles.rowPreview} numberOfLines={1}>
+          {item.lastMessage || 'No messages yet'}
+        </Text>
       </View>
     </TouchableOpacity>
   );
 }
 
 export default function ChatsScreen({ navigation }) {
-  const [conversations, setConversations] = useState([]);
+  const [chats, setChats] = useState([]);
   const [currentUid, setCurrentUid] = useState(null);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
 
   useEffect(() => {
-    const uid = auth.currentUser?.uid;
-    if (!uid) return;
-    setCurrentUid(uid);
+    let unsub;
+    (async () => {
+      const raw = await AsyncStorage.getItem('user_session');
+      const session = raw ? JSON.parse(raw) : {};
+      const uid = session.uid;
+      if (!uid) { setLoading(false); return; }
+      setCurrentUid(uid);
 
-    const q = query(
-      collection(db, 'conversations'),
-      where('participants', 'array-contains', uid),
-      orderBy('updatedAt', 'desc')
-    );
-    const unsub = onSnapshot(q,
-        snap => {
-          const docs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-          setConversations(docs);
-          setLoading(false);
-        },
-        err => {
-          console.warn('ChatsScreen snapshot error:', err);
-          setLoading(false);
-        }
-      );
+      unsub = listenToChats(uid, data => {
+        setChats(data);
+        setLoading(false);
+      });
+    })();
 
-    return () => unsub();
+    return () => unsub && unsub();
   }, []);
 
   const handleLogout = () => {
@@ -137,16 +115,16 @@ export default function ChatsScreen({ navigation }) {
         style: 'destructive',
         onPress: async () => {
           await AsyncStorage.removeItem('user_session');
-          await auth.signOut();
+          await AsyncStorage.removeItem('pending_phone');
           navigation.replace('Phone');
         },
       },
     ]);
   };
 
-  const handleOpenChat = useCallback((conversation, otherUser, otherUid) => {
+  const handleOpenChat = useCallback((chat, otherUser, otherUid) => {
     navigation.navigate('Chat', {
-      conversationId: conversation.id,
+      chatId: chat.id,
       otherUid,
       otherName: otherUser.name,
       otherPhotoURL: otherUser.photoURL || null,
@@ -154,13 +132,9 @@ export default function ChatsScreen({ navigation }) {
     });
   }, [navigation]);
 
-  const handleNewChat = () => {
-    navigation.navigate('NewChat');
-  };
-
-  const filtered = conversations.filter(item => {
+  const filtered = chats.filter(item => {
     if (!search.trim()) return true;
-    const otherUid = item.participants?.find(p => p !== currentUid);
+    const otherUid = item.users?.find(u => u !== currentUid);
     const other = item.participantData?.[otherUid] || {};
     return other.name?.toLowerCase().includes(search.toLowerCase());
   });
@@ -195,7 +169,7 @@ export default function ChatsScreen({ navigation }) {
 
       {loading ? (
         <View style={styles.empty}>
-          <Text style={styles.emptyText}>Loading…</Text>
+          <ActivityIndicator size="large" color="#E46C53" />
         </View>
       ) : filtered.length === 0 ? (
         <View style={styles.empty}>
@@ -210,7 +184,7 @@ export default function ChatsScreen({ navigation }) {
           data={filtered}
           keyExtractor={item => item.id}
           renderItem={({ item }) => (
-            <ConversationRow
+            <ChatRow
               item={item}
               currentUid={currentUid}
               onPress={handleOpenChat}
@@ -223,7 +197,11 @@ export default function ChatsScreen({ navigation }) {
       )}
 
       {/* FAB */}
-      <TouchableOpacity style={styles.fab} onPress={handleNewChat} activeOpacity={0.85}>
+      <TouchableOpacity
+        style={styles.fab}
+        onPress={() => navigation.navigate('ContactsTab')}
+        activeOpacity={0.85}
+      >
         <Text style={styles.fabIcon}>✏️</Text>
       </TouchableOpacity>
     </SafeAreaView>
@@ -335,38 +313,9 @@ const styles = StyleSheet.create({
     fontSize: 9,
     color: '#c4b8ae',
   },
-  rowTimeUnread: {
-    color: '#E46C53',
-    fontWeight: '600',
-  },
-  rowBottom: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-  },
   rowPreview: {
     fontSize: 11,
     color: '#999',
-    flex: 1,
-    marginRight: 8,
-  },
-  rowPreviewUnread: {
-    color: '#555',
-    fontWeight: '500',
-  },
-  badge: {
-    backgroundColor: '#E46C53',
-    borderRadius: 9,
-    minWidth: 18,
-    height: 18,
-    alignItems: 'center',
-    justifyContent: 'center',
-    paddingHorizontal: 4,
-  },
-  badgeText: {
-    color: '#fff',
-    fontSize: 9,
-    fontWeight: '600',
   },
   separator: {
     height: 1,
@@ -389,10 +338,6 @@ const styles = StyleSheet.create({
     fontWeight: '700',
     color: '#333',
     marginBottom: 8,
-  },
-  emptyText: {
-    fontSize: 13,
-    color: '#999',
   },
   emptySubtext: {
     fontSize: 12,
